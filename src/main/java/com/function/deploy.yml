@@ -1,0 +1,58 @@
+stages:
+- stage: Build
+  displayName: Build solution
+  jobs:  
+  - job: Build
+    displayName: Build and publish solution
+    pool:
+      vmImage: $(vmImageName)
+      workspace:
+            clean: all
+    steps:
+    - checkout: self
+    - checkout: AzureUtil
+
+    - task: DotNetCoreCLI@2
+      displayName: Build and Publish Azure Function
+      inputs:
+        command: publish
+        arguments: '--configuration Release --output publish_output'
+        projects: $(projectsPath)/$(projectFileName)
+        publishWebProjects: false
+        modifyOutputPath: false
+        zipAfterPublish: false
+
+    - task: ArchiveFiles@2
+      displayName: "Archive files"
+      inputs:
+        rootFolderOrFile: "$(System.DefaultWorkingDirectory)/publish_output"
+        includeRootFolder: false
+        replaceExistingArchive: true
+        archiveFile: $(Build.ArtifactStagingDirectory)\output.zip'         
+
+    - task: PublishBuildArtifacts@1
+      displayName: "Publish build artifacts"
+      inputs:
+        PathtoPublish: $(Build.ArtifactStagingDirectory)\output.zip'
+        artifactName: 'drop'
+- stage: Deploy
+  displayName: Deploy Azure Function
+  dependsOn: Build
+  condition: succeeded()
+  jobs:
+    - deployment: Deploy
+      displayName: Deploy Azure Function
+      pool:
+        vmImage: $(vmImageName)
+      environment: 'Web-Dev'
+      strategy:
+        runOnce:
+          deploy:
+            steps:
+            - task: AzureFunctionApp@1
+              displayName: 'Azure functions app deploy'
+              inputs:
+                azureSubscription: '$(serviceConnectionName)'
+                appType: functionApp
+                appName: '$(azureFunctionName)'
+                package: '$(Pipeline.Workspace)\drop\output.zip' 
